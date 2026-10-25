@@ -80,7 +80,7 @@ export function startPlant(spec) {
   try { db = initializeFirestore(fbApp, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }   // offline cache + queued writes
   catch (e) { db = getFirestore(fbApp); }
   const P = spec.prefix;
-  const SP = window.SWRO_PFD;
+  const SP = window.SWRO_PFD, HL = window.SWRO_HEALTH;
   const COLS = ['daily', 'equipment', 'pm', 'cm', 'log'].concat(spec.workOrders ? ['wo'] : []);
   const S = { daily: [], equipment: [], pm: [], cm: [], wo: [], log: [], view: 'dashboard', ready: false, online: true, alerts: {} };
   const PEND = {};
@@ -96,7 +96,7 @@ export function startPlant(spec) {
   const roleNow = () => (window.Role ? window.Role.forUser(auth.currentUser) : null);
   const isAdminR = () => roleNow() === 'admin';
   const canDailyR = () => { const r = roleNow(); return r === 'admin' || r === 'operator'; };
-  const allowedView = (v) => { const r = roleNow(); if (r === 'admin') return true; if (r === 'operator') return ['dashboard', 'stage', 'entry', 'equipment', 'pm', 'cm', 'wo'].includes(v); if (r === 'viewer') return ['dashboard', 'stage', 'equipment', 'pm', 'cm', 'wo'].includes(v); return false; };
+  const allowedView = (v) => { const r = roleNow(); if (r === 'admin') return true; if (r === 'operator') return ['dashboard', 'stage', 'health', 'entry', 'equipment', 'pm', 'cm', 'wo'].includes(v); if (r === 'viewer') return ['dashboard', 'stage', 'health', 'equipment', 'pm', 'cm', 'wo'].includes(v); return false; };
   const guard = (n, kind) => {
     const r = roleNow();
     if (r === 'admin') return;
@@ -181,6 +181,7 @@ export function startPlant(spec) {
     ['entry', 'entry', ['ثبت و ویرایش اطلاعات روزانه', 'Daily data entry']],
     ['reports', 'chart', ['گزارش‌ها و آمار', 'Reports & statistics']],
     ['qreport', 'doc', ['گزارش جامع ۶ نقطه', 'Six-point full report']],
+    ['health', 'chart', ['سلامت RO و کارتریج', 'RO & cartridge health']],
     ['limits', 'sliders', ['حدود مجاز پارامترها', 'Parameter limits']],
     ['equipment', 'gear', ['تجهیزات', 'Equipment']],
     ['pm', 'cal', ['بازدید دوره‌ای', 'Periodic inspections']],
@@ -231,7 +232,7 @@ export function startPlant(spec) {
   function renderCurrent() {
     if (!allowedView(S.view)) S.view = 'dashboard';
     destroyCharts();
-    const f = { dashboard: vDash, stage: vStage, qreport: vQReport, limits: vLimits, entry: vEntry, reports: vReports, equipment: vEquip, pm: vPm, cm: vCm, wo: vWo, log: vLog }[S.view];
+    const f = { dashboard: vDash, stage: vStage, health: vHealth, qreport: vQReport, limits: vLimits, entry: vEntry, reports: vReports, equipment: vEquip, pm: vPm, cm: vCm, wo: vWo, log: vLog }[S.view];
     if (!f) return;
     f(document.getElementById('content'));
     lockUI(document.getElementById('content'));
@@ -295,8 +296,14 @@ export function startPlant(spec) {
     const todayDone = !!dm[today];
     c.innerHTML = `
       ${todayDone ? '' : `<div class="notice">⚠️ <div>${L('اطلاعات امروز هنوز ثبت نشده است.', "Today's data has not been entered yet.")} <a href="#" id="goEntry" style="color:var(--accent-2);font-weight:700;">${L('ثبت اطلاعات روز', 'Enter data')}</a></div></div>`}
-      <div class="card" style="padding:12px"><div id="simBar"></div><div id="pfdMount"></div></div>
+      <style>.replay{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}.replay.past{border-color:#d6336c;background:rgba(214,51,108,.07)}.rp-t{font-weight:700;font-size:13px}.rp-d{font-size:12.5px;min-width:150px}
+        .live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:10px}.live-card{border:2px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--panel-2)}.lc-h{display:flex;align-items:center;gap:7px;font-size:14px}.lc-dot{width:11px;height:11px;border-radius:50%}.lc-s{margin-inline-start:auto;font-size:11px;color:var(--text-muted)}.lc-n{font-size:11px;color:var(--text-dim);margin:2px 0 6px;min-height:28px}.lc-r{display:flex;align-items:center;gap:6px;padding:3px 0;border-top:1px dashed var(--border);cursor:pointer;font-size:12px}.lc-p{flex:1;color:var(--text-muted)}.lc-v{font-family:var(--mono);font-weight:800;min-width:48px;text-align:end}.lc-d{font-size:10.5px;color:var(--text-dim);margin-top:6px}
+        .rc-item{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--panel-2)}.rc-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.rc-l{margin:8px 0 0;padding-inline-start:22px;font-size:13px;line-height:1.8}.rc-l li.hot{font-weight:700}.rc-ev{font-size:12px;font-weight:500;color:var(--accent-2)}</style>
+      <div class="card" style="padding:12px"><div id="simBar"></div><div id="pfdMount"></div><div id="replayBar"></div></div>
       <div id="simPanel"></div>
+      <div id="livePanel"></div>
+      <div id="rootPanel"></div>
+      <div id="healthMini"></div>
       <div class="grid kpi-row">
         ${kp(L('آخرین ثبت اطلاعات', 'Last data entry'), last ? jStr(last) : '—', last ? (diffDays(today, last) === 0 ? L('امروز', 'today') : D(diffDays(today, last)) + ' ' + L('روز پیش', 'days ago')) : L('بدون ثبت', 'no data'), 'var(--accent-2)')}
         ${kp(L('تعداد تجهیزات', 'Equipment'), D(S.equipment.length), '', 'var(--violet)')}
@@ -304,16 +311,14 @@ export function startPlant(spec) {
         ${kp(L('تعمیرات باز', 'Open repairs'), D(openCm), '', openCm ? 'var(--amber)' : 'var(--green)')}
         ${spec.workOrders ? kp(L('دستورکار باز', 'Open work orders'), D(openWo), '', openWo ? 'var(--coral)' : 'var(--green)') : ''}
       </div>
-      <div class="card"><div class="panel-title"><div><h3>${L('آخرین مقادیر ثبت‌شده', 'Latest recorded values')}</h3><div class="sub">${last ? jStr(last) : ''}</div></div></div>
-        ${rec ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">${spec.dashParams.map(k => { const p = PBY[k]; const v = (rec.values || {})[k]; return `<div style="border:1px solid var(--border);border-radius:10px;padding:9px 12px;background:var(--panel-2);"><div style="font-size:11px;color:var(--text-muted)">${esc(lab(p))}</div><div style="font-family:var(--mono);font-size:17px;font-weight:800;color:var(--accent-2)">${v == null || v === '' ? '—' : fmtP(p, Number(v))} <small style="font-size:10px;color:var(--text-dim);font-weight:500">${esc(unitOf(p))}</small></div></div>`; }).join('')}</div>` : `<div class="empty"><h4>${L('هنوز داده‌ای ثبت نشده است', 'No data recorded yet')}</h4></div>`}
-      </div>
+      <div class="card" id="valsCard">${valsHTML()}</div>
       <div class="charts-grid" id="dashCharts"></div>
       <div class="charts-grid">
         <div class="card" style="margin:0;"><div class="panel-title"><h3>${L('بازدیدهای نیازمند توجه', 'Inspections needing attention')}</h3></div><div class="alert-list">${(() => { const a = S.pm.map(p => ({ p, s: pmStat(p) })).filter(x => x.s.k !== 'ok').sort((x, y) => x.s.d - y.s.d).slice(0, 6); return a.length ? a.map(({ p, s }) => `<div class="alert-item"><span class="tag ${s.k === 'overdue' ? 'tag-red' : 'tag-amber'}">${s.k === 'overdue' ? L('معوق', 'Overdue') : L('نزدیک موعد', 'Due soon')}</span><b>${esc(eqName(p.equipmentId))}</b><span style="color:var(--text-muted)">${esc(p.title)}</span><span style="margin-inline-start:auto" class="cell-mono">${jStr(s.due)}</span></div>`).join('') : `<div class="empty" style="padding:14px"><h4>${L('همه بازدیدها به‌روز است', 'All inspections are up to date')}</h4></div>`; })()}</div></div>
         <div class="card" style="margin:0;"><div class="panel-title"><h3>${L('تعمیرات و خرابی‌های باز', 'Open repairs & failures')}</h3></div><div class="alert-list">${(() => { const a = S.cm.filter(x => x.status === 'open').sort((x, y) => y.date.localeCompare(x.date)).slice(0, 6); return a.length ? a.map(x => `<div class="alert-item"><span class="tag tag-amber">${L('باز', 'Open')}</span><b>${esc(eqName(x.equipmentId))}</b><span style="color:var(--text-muted)">${esc((x.issue || '').slice(0, 60))}</span><span style="margin-inline-start:auto" class="cell-mono">${jStr(x.date)}</span></div>`).join('') : `<div class="empty" style="padding:14px"><h4>${L('مورد بازی وجود ندارد', 'No open items')}</h4></div>`; })()}</div></div>
       </div>`;
     const ge = document.getElementById('goEntry'); if (ge) ge.onclick = (e) => { e.preventDefault(); go('entry'); };
-    drawMainPfd();
+    drawReplay(); drawMainPfd(); drawLive(); drawRoot(); drawHealthMini();
     drawDashCharts();
   }
   async function drawDashCharts() {
@@ -335,21 +340,153 @@ export function startPlant(spec) {
   const limOf = (k) => ((((S.alerts || {}).limits || {})[spec.prefix.replace('_', '')]) || {})[k] || {};
   const outOf = (k, v) => { const l = limOf(k); return v != null && ((l.max != null && v > l.max) || (l.min != null && v < l.min)); };
   const stKeys = (id) => { const st = SP.STAGES[id], ks = []; (st.groups || []).forEach(gid => { const g = spec.groups.find(x => x.id === gid); if (g) g.params.forEach(p => ks.push(p.key)); }); (st.keys || []).forEach(k => { if (PBY[k] && !ks.includes(k)) ks.push(k); }); return ks; };
-  function latestOf(k) {   // newest record that holds a value for k
+  function latestAt(k, asOf) {   // newest record (on or before asOf) that holds a value for k
     const rows = [...S.daily].sort((a, b) => (b.date || b.id).localeCompare(a.date || a.id));
-    for (const r of rows) { const v = (r.values || {})[k]; if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return { v: Number(v), date: r.date || r.id }; }
+    for (const r of rows) { const d = r.date || r.id; if (asOf && d > asOf) continue; const v = (r.values || {})[k]; if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) return { v: Number(v), date: d }; }
     return null;
   }
-  function badStages() {
-    const out = new Set(); SP.STAGE_ORDER.forEach(id => { if (stKeys(id).some(k => { const l = latestOf(k); return l && outOf(k, l.v); })) out.add(id); }); return out;
+  const latestOf = (k) => latestAt(k, null);
+  function badStages(asOf) {
+    const out = new Set(); SP.STAGE_ORDER.forEach(id => { if (stKeys(id).some(k => { const l = latestAt(k, asOf || null); return l && outOf(k, l.v); })) out.add(id); }); return out;
   }
   UI.sim = UI.sim || { on: false, off: new Set() };
-  const simLatest = (k) => { const l = latestOf(k); return l ? l.v : null; };
+  UI.back = UI.back || 0;                                   /* replay: days back from today (0 = live) */
+  const asOfNow = () => UI.back > 0 ? addDays(todayISO(), -UI.back) : null;
+  const vAt = (k) => { const l = latestAt(k, asOfNow()); return l ? l.v : null; };
+  const simLatest = vAt;
+  const hcfg = () => (S.alerts || {}).dsHealth || {};
+
+  /* ---------- equipment health (open repair = red, overdue inspection = amber) ---------- */
+  function pmStatAt(p, asOf) {
+    if (!asOf) return pmStat(p);
+    const hist = (Array.isArray(p.history) ? p.history : []).concat(p.lastDone ? [p.lastDone] : []).filter(d => d <= asOf).sort();
+    if (!hist.length && (p.createdAt || asOf) > asOf) return null;
+    const base = hist.length ? hist[hist.length - 1] : (p.createdAt || asOf), due = addDays(base, Number(p.freqDays) || 30), d = diffDays(due, asOf);
+    return { k: d < 0 ? 'overdue' : d <= 7 ? 'soon' : 'ok', d, due };
+  }
+  const cmOpenAt = (x, asOf) => !asOf ? x.status === 'open' : ((x.date || '') <= asOf && (x.status === 'open' || (x.closedAt && x.closedAt > asOf)));
+  function eqHealth(asOf) {
+    const el = {}, stage = {}, rank = { bad: 2, warn: 1 };
+    S.equipment.forEach(e => {
+      const cms = S.cm.filter(x => x.equipmentId === e.id && cmOpenAt(x, asOf));
+      const pms = S.pm.filter(p => p.equipmentId === e.id).map(p => ({ p, s: pmStatAt(p, asOf) })).filter(x => x.s && x.s.k === 'overdue');
+      const k = cms.length ? 'bad' : pms.length ? 'warn' : null; if (!k) return;
+      const info = SP.elInfo(e.pfdEl), st = e.stage || (info && info.stage);
+      if (e.pfdEl && info) { const o = el[e.pfdEl] = el[e.pfdEl] || { k: 'warn', cm: 0, pm: 0 }; o.cm += cms.length; o.pm += pms.length; if (rank[k] > rank[o.k]) o.k = k; }
+      if (st) { if (!stage[st] || rank[k] > rank[stage[st]]) stage[st] = k; }
+    });
+    return { el, stage };
+  }
+
+  /* ---------- live values of the six sampling points ---------- */
+  const HEAD = { 1: ['rTds', 'TDS'], 2: ['fPh', 'pH'], 3: ['sOrp', 'ORP'], 4: ['cNtu', 'NTU'], 5: ['mTds', 'TDS'], 6: ['oCl', 'Cl'] };
+  const pointKeys = (n) => { const g = spec.groups.find(x => x.id === SP.POINTS[n].group); return g ? g.params.map(p => p.key) : []; };
+  function series7(k, endISO) {
+    const dm = dailyMap(), out = [];
+    for (let i = 6; i >= 0; i--) { const r = dm[addDays(endISO, -i)], v = r && r.values ? r.values[k] : null; out.push(v === null || v === undefined || v === '' || isNaN(Number(v)) ? null : Number(v)); }
+    return out;
+  }
+  function livePoints() {
+    const asOf = asOfNow(), end = asOf || todayISO(), out = {};
+    for (let n = 1; n <= 6; n++) {
+      const items = pointKeys(n).map(k => { const l = latestAt(k, asOf), st = HL.status(l ? l.v : null, limOf(k)); return { k, l, st, ser: series7(k, end) }; });
+      const status = HL.worst(items.map(i => i.st)), hk = HEAD[n][0], hp = PBY[hk], hi = items.find(i => i.k === hk);
+      const sp = HL.spark(hi ? hi.ser : [], SP.BADGE[n][2] - 62, 12);
+      const dts = items.map(i => i.l && i.l.date).filter(Boolean).sort(), dt = dts[dts.length - 1];
+      out[n] = { n, items, status, spark: sp, date: dt || null,
+        text: hi && hi.l ? HEAD[n][1] + ' ' + fmtP(hp, hi.l.v) : HEAD[n][1] + ' —',
+        tip: (isFa() ? 'نقطه ' : 'Point ') + D(n) + ' — ' + (dt ? jStr(dt) : L('بدون ثبت', 'no data')) };
+    }
+    return out;
+  }
+  const SCOLR = { bad: '#d43439', warn: '#f5a524', ok: '#2fb36b', none: '#8a97a8' };
+  const STXT = () => ({ bad: L('خارج از حد', 'out of limit'), warn: L('نزدیک حد', 'near limit'), ok: L('در حد مجاز', 'within limit'), none: L('حد تعریف نشده', 'no limit set') });
+  function sparkSvg(ser, col, w, h) { const s = HL.spark(ser, w, h); return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="vertical-align:middle">${s.d ? `<path d="${s.d}" fill="none" stroke="${col}" stroke-width="1.5"/>${s.last ? `<circle cx="${s.last[0]}" cy="${s.last[1]}" r="2" fill="${col}"/>` : ''}` : ''}</svg>`; }
+  function drawLive() {
+    const el = document.getElementById('livePanel'); if (!el) return;
+    const lv = livePoints(), tx = STXT();
+    el.innerHTML = `<div class="card"><div class="panel-title"><div><h3>${L('مقادیر زنده نقاط نمونه‌برداری و روند ۷ روز', 'Live sampling-point values & 7-day trend')}</h3><div class="sub">${L('رنگ: سبز = در حد مجاز · زرد = نزدیک حد (۱۰٪ انتهای بازه) · قرمز = خارج از حد · خاکستری = حد تعریف نشده. مقادیر از ثبت روزانه اپراتور می‌آیند، نه سنسور.', 'Green = within limit · amber = within 10% of a limit · red = out of limit · grey = no limit set. Values come from the operator’s daily entry, not from sensors.')}</div></div></div>
+      <div class="live-grid">${[1, 2, 3, 4, 5, 6].map(n => { const b = lv[n]; return `<div class="live-card" style="border-color:${SCOLR[b.status]}"><div class="lc-h"><span class="lc-dot" style="background:${SCOLR[b.status]}"></span><b>${L('نقطه ', 'Point ')}${D(n)}</b><span class="lc-s">${tx[b.status]}</span></div><div class="lc-n">${esc(SP.POINTS[n][isFa() ? 'fa' : 'en'])}</div>
+        ${b.items.map(i => { const p = PBY[i.k]; return `<div class="lc-r" data-st="${SP.POINTS[n].stage}" data-f="p${n}"><span class="lc-p">${esc(lab(p))}</span><span class="lc-v" style="color:${SCOLR[i.st]}">${i.l ? fmtP(p, i.l.v) : '—'}</span>${sparkSvg(i.ser, SCOLR[i.st], 52, 16)}</div>`; }).join('')}
+        <div class="lc-d">${b.date ? L('آخرین ثبت: ', 'Last entry: ') + jStr(b.date) : L('ثبت نشده', 'no data')}</div></div>`; }).join('')}</div></div>`;
+    el.querySelectorAll('.lc-r').forEach(r => r.onclick = () => openStage(r.dataset.st, r.dataset.f));
+  }
+
+  /* ---------- root-cause panel ---------- */
+  function drawRoot() {
+    const el = document.getElementById('rootPanel'); if (!el) return;
+    const asOf = asOfNow(), dm = dailyMap(), dates = Object.keys(dm).sort();
+    const rejAt = (d) => { const r = dm[d] && dm[d].values; if (!r) return null; const c = Number(r.cTds), m = Number(r.mTds); return (c > 0 && r.mTds !== '' && r.mTds != null && !isNaN(m)) ? (c - m) / c * 100 : null; };
+    const ctx = {
+      keys: ALLP.map(p => p.key), v: vAt, lim: limOf, name: (k) => PBY[k] ? lab(PBY[k]) : k,
+      prev: (k, n) => { const l = k === 'rej' ? { date: asOf || todayISO() } : latestAt(k, asOf); if (!l) return []; const o = []; for (let i = dates.length - 1; i >= 0 && o.length < n; i--) { const d = dates[i]; if (d >= l.date || (asOf && d > asOf)) continue; const x = k === 'rej' ? rejAt(d) : (dm[d].values || {})[k]; if (x !== null && x !== undefined && x !== '' && !isNaN(Number(x))) o.push(Number(x)); } return o; }
+    };
+    const raw = HL.rootCause(ctx), res = [];
+    raw.forEach(r => { const sig = r.dir + '|' + r.causes.map(c => c.fa).join('|'), g = res.find(x => x.sig === sig); if (g) g.more.push(r); else res.push(Object.assign({ sig, more: [] }, r)); });
+    if (!res.length) { el.innerHTML = ''; return; }
+    const stOf = (k) => { for (const id of SP.STAGE_ORDER) if (stKeys(id).includes(k)) return id; return null; };
+    el.innerHTML = `<div class="card"><div class="panel-title"><div><h3>🔎 ${L('ریشه‌یابی پارامترهای خارج از حد', 'Root-cause checklist for out-of-limit parameters')}${asOf ? ' — ' + jStr(asOf) : ''}</h3><div class="sub">${L('فهرست علت‌های محتمل برای بررسی در محل؛ قطعی نیست. موارد دارای «شاهد» با داده‌های ثبت‌شده شما تأیید شده‌اند و اول آمده‌اند.', 'Probable causes to check on site — not a diagnosis. Items with “evidence” are supported by your recorded data and come first.')}</div></div></div>
+      <div class="alert-list">${res.map(r => { const p = PBY[r.key], sid = stOf(r.key); return `<div class="rc-item"><div class="rc-h"><span class="tag ${r.sev === 'crit' ? 'tag-red' : 'tag-amber'}">${r.sev === 'crit' ? L('بحرانی', 'Critical') : L('خارج از حد', 'Out of limit')}</span><b>${esc(lab(p))}</b><span class="cell-mono">${fmtP(p, r.v)} ${esc(unitOf(p))} ${r.dir === 'high' ? '▲' : '▼'} ${esc(limTxt(r.key))}</span>${r.more.map(q => `<span class="tag tag-amber">${esc(lab(PBY[q.key]))}: ${fmtP(PBY[q.key], q.v)}</span>`).join('')}${sid ? `<button class="btn btn-sm btn-ghost rc-go" data-st="${sid}" data-f="">${L('باز کردن مرحله', 'Open stage')}</button>` : ''}</div>
+        <ol class="rc-l">${r.causes.map(c => `<li class="${c.hot ? 'hot' : ''}">${esc(L(c.fa, c.en))}${c.ev ? `<div class="rc-ev">📌 ${L('شاهد: ', 'Evidence: ')}${esc(D(L(c.ev.fa, c.ev.en)))}</div>` : ''}</li>`).join('')}</ol></div>`; }).join('')}</div></div>`;
+    el.querySelectorAll('.rc-go').forEach(b => b.onclick = () => openStage(b.dataset.st, b.dataset.f));
+  }
+
+  /* ---------- cartridge / membrane summary on the dashboard ---------- */
+  function healthData(endISO) { return HL.membrane({ dm: dailyMap(), end: endISO || todayISO(), cfg: hcfg(), lim: limOf, span: 60 }); }
+  const lvTag = (l) => l === 'act' ? ['tag-red', L('اقدام لازم', 'Action needed')] : l === 'watch' ? ['tag-amber', L('تحت نظر', 'Watch')] : l === 'ok' ? ['tag-green', L('مطلوب', 'Good')] : ['tag-blue', L('داده کافی نیست', 'Not enough data')];
+  function cipText(h) {
+    const c = h.cip, nm = { sp: L('عبور نمک', 'salt passage'), npf: L('شار نرمال‌شده', 'normalised flow'), dp: L('ΔP غشاها', 'membrane ΔP') };
+    if (c.kind === 'now') return L('همین حالا شست‌وشوی شیمیایی (CIP) توصیه می‌شود — شاخص: ', 'Chemical cleaning (CIP) is recommended now — indicator: ') + c.by.map(x => nm[x]).join('، ');
+    if (c.kind === 'plan') return L('CIP پیشنهادی حدود ', 'Suggested CIP around ') + jStr(c.date) + L(' (حدود ', ' (about ') + D(c.days) + L(' روز دیگر، بر اساس روند ', ' days, from the trend of ') + nm[c.by] + ')';
+    if (c.kind === 'watch') return L('فعلاً CIP لازم نیست؛ شاخص‌ها را زیر نظر داشته باشید.', 'No CIP needed yet; keep watching the indicators.');
+    if (c.kind === 'ok') return L('عملکرد غشا نسبت به مبنا پایدار است؛ CIP لازم نیست.', 'Membrane performance is stable versus baseline; no CIP needed.');
+    return L('برای این تحلیل، پارامترهای «عملکرد کارتریج و RO» (فشارها، دبی، دما) را چند روز ثبت کنید.', 'Record the “Cartridge & RO performance” parameters (pressures, flow, temperature) for a few days to enable this.');
+  }
+  function cartText(h) {
+    const a = h.cartAdvice;
+    if (a.kind === 'now') return L('اختلاف فشار کارتریج‌ها به آستانه رسیده؛ تعویض کارتریج‌ها توصیه می‌شود.', 'Cartridge ΔP reached the threshold — replace the cartridges.');
+    if (a.kind === 'plan') return L('تعویض کارتریج‌ها حدود ', 'Cartridge replacement around ') + jStr(a.date) + L(' (حدود ', ' (about ') + D(a.days) + L(' روز دیگر)', ' days)');
+    if (a.kind === 'watch') return L('ΔP کارتریج‌ها در حال افزایش است؛ زیر نظر بگیرید.', 'Cartridge ΔP is rising — watch it.');
+    if (a.kind === 'ok') return L('اختلاف فشار کارتریج‌ها پایدار است.', 'Cartridge ΔP is stable.');
+    return L('برای پیش‌بینی تعویض کارتریج، «ΔP کارتریج‌ها» را روزانه ثبت کنید.', 'Record cartridge ΔP daily to forecast replacement.');
+  }
+  function drawHealthMini() {
+    const el = document.getElementById('healthMini'); if (!el) return;
+    const h = healthData(asOfNow() || todayISO()), t1 = lvTag(h.cip.kind === 'now' ? 'act' : h.cip.kind === 'plan' || h.cip.kind === 'watch' ? 'watch' : h.cip.kind === 'ok' ? 'ok' : 'na'), t2 = lvTag(h.cart.level);
+    el.innerHTML = `<div class="card"><div class="panel-title"><div><h3>${L('سلامت ممبران و کارتریج', 'Membrane & cartridge health')}</h3></div><button class="btn btn-sm btn-ghost" id="hmGo">${L('جزئیات و نمودارها', 'Details & charts')}</button></div>
+      <div class="alert-list"><div class="alert-item"><span class="tag ${t1[0]}">${t1[1]}</span><b>${L('ممبران RO', 'RO membranes')}</b><span style="color:var(--text-muted)">${esc(cipText(h))}</span></div>
+      <div class="alert-item"><span class="tag ${t2[0]}">${t2[1]}</span><b>${L('کارتریج‌ها', 'Cartridges')}</b><span style="color:var(--text-muted)">${esc(cartText(h))}</span></div></div></div>`;
+    document.getElementById('hmGo').onclick = () => go('health');
+  }
+
+  /* ---------- time replay ---------- */
+  function replayRange() { const ds = S.daily.map(r => r.date || r.id).sort(); if (!ds.length) return 0; return Math.min(365, Math.max(0, diffDays(todayISO(), ds[0]))); }
+  function drawReplay() {
+    const bar = document.getElementById('replayBar'); if (!bar) return;
+    const N = replayRange(); if (N < 1) { bar.innerHTML = ''; return; }
+    UI.back = Math.min(UI.back, N);
+    bar.innerHTML = `<div class="replay"><span class="rp-t">⏪ ${L('بازپخش زمانی', 'Time replay')}</span><button class="btn btn-sm btn-ghost" id="rpPrev" title="${L('یک روز قبل', 'Previous day')}">◀</button><input type="range" id="rpSl" min="0" max="${N}" step="1" value="${N - UI.back}" style="flex:1;min-width:120px"><button class="btn btn-sm btn-ghost" id="rpNext" title="${L('یک روز بعد', 'Next day')}">▶</button><span class="rp-d" id="rpD"></span><button class="btn btn-sm btn-ghost" id="rpLive">↺ ${L('امروز', 'Today')}</button></div>`;
+    const sl = document.getElementById('rpSl'), set = (back) => { UI.back = Math.max(0, Math.min(N, back)); sl.value = N - UI.back; refreshInsight(); };
+    sl.oninput = () => set(N - Number(sl.value));
+    document.getElementById('rpPrev').onclick = () => set(UI.back + 1);
+    document.getElementById('rpNext').onclick = () => set(UI.back - 1);
+    document.getElementById('rpLive').onclick = () => set(0);
+    rpLabel();
+  }
+  function rpLabel() { const d = document.getElementById('rpD'), pm = document.getElementById('pfdMount'); if (d) d.innerHTML = UI.back ? `<b>${jStr(asOfNow())}</b> · ${D(UI.back)} ${L('روز پیش', 'days ago')}` : `<b>${L('وضعیت فعلی (زنده)', 'Current (live)')}</b>`; const w = document.getElementById('replayBar'); if (w) w.classList.toggle('past', !!UI.back); }
+  function refreshInsight() { rpLabel(); drawMainPfd(); drawLive(); drawRoot(); drawHealthMini(); const v = document.getElementById('valsCard'); if (v) v.innerHTML = valsHTML(); }
+
+  function valsHTML() {
+    const dm = dailyMap(), asOf = asOfNow(), dates = Object.keys(dm).filter(d => !asOf || d <= asOf).sort(), last = dates[dates.length - 1], rec = last ? dm[last] : null;
+    return `<div class="panel-title"><div><h3>${asOf ? L('مقادیر ثبت‌شده تا تاریخ انتخابی', 'Values recorded up to the chosen date') : L('آخرین مقادیر ثبت‌شده', 'Latest recorded values')}</h3><div class="sub">${last ? jStr(last) : ''}</div></div></div>
+      ${rec ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));">${spec.dashParams.map(k => { const p = PBY[k]; const v = (rec.values || {})[k]; return `<div style="border:1px solid var(--border);border-radius:10px;padding:9px 12px;background:var(--panel-2);"><div style="font-size:11px;color:var(--text-muted)">${esc(lab(p))}</div><div style="font-family:var(--mono);font-size:17px;font-weight:800;color:var(--accent-2)">${v == null || v === '' ? '—' : fmtP(p, Number(v))} <small style="font-size:10px;color:var(--text-dim);font-weight:500">${esc(unitOf(p))}</small></div></div>`; }).join('')}</div>` : `<div class="empty"><h4>${L('هنوز داده‌ای ثبت نشده است', 'No data recorded yet')}</h4></div>`}`;
+  }
+
   function drawMainPfd() {
     const m = document.getElementById('pfdMount'); if (!m) return;
-    const v = {}; ['tkRaw', 'tkProd', 'rec'].forEach(k => { const l = latestOf(k); if (l) v[k] = l.v; });
-    const sim = UI.sim;
-    SP.renderMain(m, { fa: isFa(), bad: badStages(), v, sim, open: (id, f) => openStage(id, f),
+    const asOf = asOfNow(), v = {}; ['tkRaw', 'tkProd', 'rec'].forEach(k => { const l = latestAt(k, asOf); if (l) v[k] = l.v; });
+    const sim = UI.sim, eh = eqHealth(asOf), lv = livePoints(), live = {}; for (let n = 1; n <= 6; n++) live[n] = { status: lv[n].status, text: D(lv[n].text), spark: lv[n].spark, tip: lv[n].tip };
+    SP.renderMain(m, { fa: isFa(), bad: badStages(asOf), v, sim, live, eq: eh.el, eqStage: eh.stage, open: (id, f) => openStage(id, f), openEl,
       toggle: (id) => { if (sim.off.has(id)) sim.off.delete(id); else sim.off.add(id); drawMainPfd(); },
       hint: () => toast(L('برای باز/بسته کردن شیرها و خارج‌کردن تجهیز، «حالت شبیه‌سازی» را روشن کنید', 'Turn on simulation mode to open / close valves and take equipment out of service')) });
     drawSim();
@@ -366,6 +503,91 @@ export function startPlant(spec) {
       const res = SP.simulate(sim.off, simLatest);
       pn.innerHTML = SP.simPanel(res, { fa: isFa(), name: (k) => PBY[k] ? lab(PBY[k]) : k, valOf: simLatest, prodBase: simLatest('prod') });
     } else pn.innerHTML = '';
+  }
+  /* ---------- click on a unit of the PFD: status + quick actions ---------- */
+  function openEl(elId, stage, focus) {
+    const info = SP.elInfo(elId); if (!info) { openStage(stage, focus); return; }
+    const asOf = null, eqs = S.equipment.filter(e => e.pfdEl === elId), adm = isAdminR();
+    const eqLine = (e) => {
+      const cms = S.cm.filter(x => x.equipmentId === e.id && cmOpenAt(x, asOf)), pms = S.pm.filter(p => p.equipmentId === e.id).map(p => ({ p, s: pmStat(p) })).filter(x => x.s.k !== 'ok');
+      return `<div class="alert-item" style="align-items:flex-start;flex-wrap:wrap"><span class="tag tag-blue">${esc(catLab(e.category))}</span><b>${esc(e.name)}</b>${cms.map(x => `<span class="tag tag-amber">${L('تعمیر باز: ', 'Open repair: ')}${esc((x.issue || '').slice(0, 40))}</span>`).join('')}${pms.map(({ p, s }) => `<span class="tag ${s.k === 'overdue' ? 'tag-red' : 'tag-amber'}">${s.k === 'overdue' ? L('بازدید معوق: ', 'Overdue: ') : L('نزدیک موعد: ', 'Due soon: ')}${esc(p.title)}</span>`).join('')}${!cms.length && !pms.length ? `<span class="tag tag-green">${L('بدون مورد باز', 'nothing open')}</span>` : ''}</div>`;
+    };
+    const html = `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${esc(L('مرحله: ', 'Stage: ') + (isFa() ? SP.STAGES[info.stage].fa : SP.STAGES[info.stage].en))}</div>
+      ${eqs.length ? `<div class="alert-list">${eqs.map(eqLine).join('')}</div>` : `<div class="notice" style="margin:0">ℹ️ <div>${L('هنوز تجهیزی به این واحد وصل نشده است. در صفحه «تجهیزات» گزینه «واحد روی PFD» را انتخاب کنید تا وضعیت سلامت آن روی PFD دیده شود.', 'No equipment is linked to this unit yet. Pick “PFD unit” in the equipment form so its health shows on the PFD.')}</div></div>`}
+      ${eqs.length > 1 ? `<div style="margin-top:10px">${fSel('o_eq', L('تجهیز مورد نظر', 'Equipment'), eqs.map(e => ({ v: e.id, l: e.name })), eqs[0].id)}</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px"><button class="btn btn-primary" id="oStage">${L('باز کردن مرحله و پارامترها', 'Open stage & parameters')}</button>
+      ${adm ? (eqs.length ? `<button class="btn btn-ghost" id="oCm">🔧 ${L('ثبت خرابی / تعمیر', 'Log failure / repair')}</button><button class="btn btn-ghost" id="oWo">📋 ${L('صدور دستورکار', 'New work order')}</button>` : `<button class="btn btn-ghost" id="oAdd">＋ ${L('افزودن تجهیز برای این واحد', 'Add equipment for this unit')}</button>`) : `<span style="font-size:12px;color:var(--text-dim);align-self:center">${L('ثبت خرابی و دستورکار فقط برای مدیر فعال است.', 'Failures and work orders can be created by the administrator only.')}</span>`}</div>`;
+    modal(isFa() ? info.fa : info.en, html, null);
+    const m = document.querySelector('.modal'), pick = () => (m.querySelector('#o_eq') ? m.querySelector('#o_eq').value : (eqs[0] && eqs[0].id));
+    m.querySelector('#oStage').onclick = () => { document.getElementById('overlay').classList.remove('active'); openStage(stage, focus); };
+    const bc = m.querySelector('#oCm'); if (bc) bc.onclick = () => cmForm(null, { equipmentId: pick(), issue: (isFa() ? info.fa : info.en) + ': ' });
+    const bw = m.querySelector('#oWo'); if (bw) bw.onclick = () => woForm(null, { equipmentId: pick(), type: 'corrective', description: (isFa() ? info.fa : info.en) + ': ' });
+    const ba = m.querySelector('#oAdd'); if (ba) ba.onclick = () => equipForm(null, { stage: info.stage, pfdEl: elId, name: isFa() ? info.fa : info.en });
+  }
+
+  /* =====================================================================
+     RO MEMBRANE & CARTRIDGE HEALTH page
+     ===================================================================== */
+  function healthSettings() {
+    const c = hcfg(), th = Object.assign({}, HL.TH_DEF, c.th || {});
+    const sel = (id, v) => fSel('hs_' + id, L('تاریخ ', 'Date ') + '', [{ v: 'keep', l: v ? L('بدون تغییر (', 'Keep (') + jStr(v) + ')' : L('تعریف نشده', 'Not set') }, { v: 'set', l: L('ثبت / تغییر با تاریخ زیر', 'Set to the date below') }, { v: 'clear', l: L('پاک کردن', 'Clear') }], 'keep');
+    const html = `<div class="notice" style="margin:0 0 10px">ℹ️ <div>${L('«تاریخ مبنا» روزی است که ممبران تمیز/نو یا بعد از CIP بوده؛ شاخص‌ها نسبت به ۵ ثبت اول بعد از آن تاریخ سنجیده می‌شوند. اگر تعریف نشود، ۵ ثبت اول تاریخچه مبنا می‌شود.', 'The baseline date is a day when the membranes were clean (new or just after CIP); indicators are compared with the first 5 entries after it. If unset, the first 5 entries in history are used.')}</div></div>
+      <b>${L('تاریخ مبنا', 'Baseline date')}</b>${sel('base', c.baselineDate)}<b>${L('آخرین CIP', 'Last CIP')}</b>${sel('cip', c.lastCip)}<b>${L('آخرین تعویض کارتریج', 'Last cartridge change')}</b>${sel('cart', c.lastCart)}
+      ${dateField('hs_date', L('تاریخ برای گزینه‌های «ثبت / تغییر» (شمسی)', 'Date for the “Set” choices (Jalali)'), todayISO())}
+      <div class="notice" style="margin:10px 0">⚠️ <div>${L('آستانه‌های زیر پیش‌فرضِ راهنمای عمومی سازندگان غشا هستند (نه حد مجاز کارخانه‌ی شما). با دستورالعمل سازنده‌ی ممبران خود هماهنگ کنید.', 'Thresholds below are general membrane-manufacturer guidance defaults, not your plant limits. Align them with your membrane manufacturer’s manual.')}</div></div>
+      <div class="field-row">${fNum('hs_thsp', L('افزایش عبور نمک (٪)', 'Salt passage rise (%)'), th.sp)}${fNum('hs_thnpf', L('افت شار نرمال‌شده (٪)', 'Normalised flow loss (%)'), th.npf)}</div>
+      <div class="field-row">${fNum('hs_thdp', L('افزایش ΔP غشاها (٪)', 'Membrane ΔP rise (%)'), th.dp)}${fNum('hs_thcart', L('افزایش ΔP کارتریج (bar)', 'Cartridge ΔP rise (bar)'), th.cart)}</div>`;
+    modal(L('تنظیمات سلامت RO و کارتریج', 'RO & cartridge health settings'), html, async (m) => {
+      if (!isAdminR()) throw new Error('forbidden');
+      const n = (id) => Number(toEn(gv(m, 'hs_th' + id)).trim()), thv = { sp: n('sp'), npf: n('npf'), dp: n('dp'), cart: n('cart') };
+      if (Object.values(thv).some(x => !isFinite(x) || x <= 0)) { toast(L('آستانه‌ها باید عدد مثبت باشند', 'Thresholds must be positive numbers')); return false; }
+      const dt = dateVal(m, 'hs_date'), out = { baselineDate: c.baselineDate || null, lastCip: c.lastCip || null, lastCart: c.lastCart || null, th: thv };
+      [['base', 'baselineDate'], ['cip', 'lastCip'], ['cart', 'lastCart']].forEach(([id, f]) => { const a = gv(m, 'hs_' + id); if (a === 'set') out[f] = dt; else if (a === 'clear') out[f] = null; });
+      await quick(setDoc(doc(db, 'settings', 'alerts'), { dsHealth: out, updatedAt: new Date().toISOString() }, { merge: true }));
+      S.alerts = Object.assign({}, S.alerts, { dsHealth: out });
+      logAct(L('تنظیمات سلامت RO و کارتریج', 'RO & cartridge health settings'), ''); toast(L('ذخیره شد', 'Saved')); renderCurrent();
+    });
+  }
+  function vHealth(c) {
+    setTitle(L('سلامت RO و کارتریج', 'RO & cartridge health'), L('روند عملکرد، هشدار زودهنگام، زمان‌بندی CIP و پیش‌بینی تعویض کارتریج', 'Performance trends, early warning, CIP timing and cartridge replacement forecast'));
+    const h = healthData(todayISO()), cf = hcfg(), adm = isAdminR();
+    const fp = (x, d) => x == null ? '—' : num(x, d == null ? 1 : d);
+    const card = (title, r, unit, extra) => { const t = lvTag(r.level); return `<div class="card" style="margin:0"><div class="panel-title"><h3>${title}</h3><span class="tag ${t[0]}">${t[1]}</span></div>
+      ${r.level === 'na' ? `<div style="font-size:12px;color:var(--text-muted)">${L('برای محاسبه لازم است: ', 'Needed: ')}${r.missing.length ? r.missing.map(k => esc(lab(PBY[k]))).join('، ') : L('حداقل ۲ ثبت برای مبنا و ثبت جدید', 'at least 2 entries for the baseline plus recent data')}</div>`
+        : `<div class="pgrid"><div class="pcard" style="cursor:default"><div class="pn">${L('اکنون', 'Now')}</div><div class="pv">${fp(r.now, 2)} <small>${unit}</small></div></div><div class="pcard" style="cursor:default"><div class="pn">${L('مبنا', 'Baseline')}</div><div class="pv">${fp(r.base, 2)} <small>${unit}</small></div><div class="pm">${r.baseFrom ? jStr(r.baseFrom) : ''}</div></div></div>
+        <div style="font-size:12px;margin-top:8px">${extra}</div><div class="bar-track"><i style="width:${Math.min(100, r.progress)}%;background:${r.level === 'act' ? '#d43439' : r.level === 'watch' ? '#f5a524' : '#2fb36b'}"></i></div>
+        <div style="font-size:11px;color:var(--text-dim)">${L('پیشرفت تا آستانه: ', 'Progress to threshold: ')}${D(Math.round(r.progress))}٪${r.daysTo != null ? ' · ' + L('رسیدن به آستانه حدود ', 'threshold in about ') + D(Math.ceil(r.daysTo)) + L(' روز دیگر', ' days') : ''}</div>`}</div>`; };
+    c.innerHTML = `<style>.bar-track{height:8px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);margin-top:8px;overflow:hidden}.bar-track i{display:block;height:100%}</style>
+      <div class="toolbar">${adm ? `<button class="btn btn-primary" id="hsSet">⚙ ${L('تنظیمات: تاریخ مبنا، CIP، تعویض کارتریج، آستانه‌ها', 'Settings: baseline, CIP, cartridge change, thresholds')}</button>` : ''}<button class="btn btn-ghost" id="hsEntry">＋ ${L('ثبت پارامترهای عملکرد', 'Enter performance parameters')}</button></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+        <div class="card" style="margin:0"><div class="panel-title"><h3>${L('توصیه ممبران RO (CIP)', 'RO membranes (CIP advice)')}</h3></div><div style="font-size:14px;font-weight:600">${esc(cipText(h))}</div><div style="font-size:12px;color:var(--text-muted);margin-top:8px">${cf.lastCip ? L('آخرین CIP: ', 'Last CIP: ') + jStr(cf.lastCip) + ' (' + D(h.sinceCip) + L(' روز پیش)', ' days ago)') : L('تاریخ آخرین CIP ثبت نشده است.', 'Last CIP date not recorded.')}</div></div>
+        <div class="card" style="margin:0"><div class="panel-title"><h3>${L('توصیه کارتریج‌ها', 'Cartridge advice')}</h3></div><div style="font-size:14px;font-weight:600">${esc(cartText(h))}</div><div style="font-size:12px;color:var(--text-muted);margin-top:8px">${cf.lastCart ? L('آخرین تعویض: ', 'Last change: ') + jStr(cf.lastCart) + ' (' + D(h.sinceCart) + L(' روز پیش)', ' days ago)') : L('تاریخ آخرین تعویض ثبت نشده است.', 'Last change date not recorded.')}</div></div></div>
+      <div style="height:12px"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+        ${card(L('عبور نمک (٪ = ۱۰۰ − درصد حذف)', 'Salt passage (% = 100 − rejection)'), h.sp, '%', L('تغییر نسبت به مبنا: ', 'Change vs baseline: ') + (h.sp.change == null ? '—' : D((h.sp.change >= 0 ? '+' : '') + h.sp.change.toFixed(1)) + '٪') + ' · ' + L('آستانه: ', 'threshold: ') + D(h.th.sp) + '٪')}
+        ${card(L('شار نرمال‌شده پرمیت (تقریبی)', 'Normalised permeate flow (approx.)'), h.npf, L('واحد نسبی', 'rel. units'), L('افت نسبت به مبنا: ', 'Loss vs baseline: ') + (h.npf.change == null ? '—' : D(h.npf.change.toFixed(1)) + '٪') + ' · ' + L('آستانه: ', 'threshold: ') + D(h.th.npf) + '٪')}
+        ${card(L('اختلاف فشار غشاها (فشار خوراک − کنسانتره)', 'Membrane ΔP (feed − concentrate pressure)'), h.dp, 'bar', L('افزایش نسبت به مبنا: ', 'Rise vs baseline: ') + (h.dp.change == null ? '—' : D((h.dp.change >= 0 ? '+' : '') + h.dp.change.toFixed(1)) + '٪') + ' · ' + L('آستانه: ', 'threshold: ') + D(h.th.dp) + '٪')}
+        ${card(L('اختلاف فشار کارتریج‌ها', 'Cartridge ΔP'), h.cart, 'bar', L('افزایش نسبت به حالت تمیز: ', 'Rise vs clean value: ') + (h.cart.change == null ? '—' : D(h.cart.change.toFixed(2)) + ' bar') + ' · ' + (h.cart.target != null ? L('آستانه تعویض: ', 'replace at: ') + D((h.cart.target).toFixed(2)) + ' bar ' + (h.cart.byLimit ? L('(حد مجاز شما)', '(your limit)') : L('(پیش‌فرض: مبنا + ', '(default: base + ') + D(h.th.cart) + ' bar)') : ''))}
+      </div>
+      <div class="charts-grid" style="margin-top:12px">${[['hc_rej', L('درصد حذف نمک (TDS نقطه ۴ ← ۵)', 'Salt rejection (TDS point 4 → 5)')], ['hc_rec', L('ریکاوری (٪)', 'Recovery (%)')], ['hc_npf', L('شار نرمال‌شده (٪ مبنا = ۱۰۰)', 'Normalised flow (% of baseline = 100)')], ['hc_dpm', L('ΔP غشاها (bar)', 'Membrane ΔP (bar)')], ['hc_cdp', L('ΔP کارتریج‌ها (bar)', 'Cartridge ΔP (bar)')]].map(([id, t]) => `<div class="chart-card"><div class="ct">${t} — ${L('۶۰ روز اخیر', 'last 60 days')}</div><div class="chart-box" style="height:210px"><canvas id="${id}"></canvas></div></div>`).join('')}</div>
+      <div class="card"><div class="panel-title"><h3>${L('روش محاسبه و محدودیت‌ها', 'Method & limitations')}</h3></div><div style="font-size:12.5px;line-height:1.9;color:var(--text-muted)">
+        ${L('• همه‌ی اعداد از ثبت روزانه‌ی اپراتور می‌آیند (حسگر زنده وجود ندارد). هر شاخص به‌صورت میانگین ۳ ثبت اخیر در ۷ روز گذشته با «مبنا» (۵ ثبت اول بعد از تاریخ مبنا) مقایسه می‌شود.', '• All numbers come from the operator’s daily entries (no live sensors). Each indicator is the mean of the last 3 entries within 7 days compared with the baseline (first 5 entries after the baseline date).')}<br>
+        ${L('• عبور نمک = ۱۰۰ − درصد حذف؛ شار نرمال‌شده = دبی پرمیت ÷ ضریب دما ÷ فشار محرک خالص (فشار خوراک − نصف افت فشار − فشار اسمزی تقریبی ۰٫۰۰۰۷ bar به‌ازای هر ppm TDS) نسبت به مبنا. چون فشار اسمزی تقریبی است، فقط «روند» معتبر است نه عدد مطلق.', '• Salt passage = 100 − rejection; normalised flow = permeate flow ÷ temperature factor ÷ net driving pressure (feed − ½ΔP − approx. osmotic pressure 0.0007 bar per ppm TDS) relative to baseline. Osmotic pressure is approximate, so only the trend is meaningful.')}<br>
+        ${L('• فشارها و دبی باید همیشه از همان خط شاخص RO و در همان ساعت روز ثبت شوند.', '• Record pressures and flow always from the same reference RO train at the same time of day.')}<br>
+        ${L('• پیش‌بینی روز باقی‌مانده با رگرسیون خطی ۲۱ روز اخیر است (حداقل ۵ ثبت)؛ نوسان داده‌ها آن را نامطمئن می‌کند. تصمیم نهایی CIP/تعویض با شماست.', '• Days remaining use a linear fit of the last 21 days (min. 5 entries); noisy data makes it unreliable. The final CIP / replacement decision is yours.')}</div></div>`;
+    const hs = document.getElementById('hsSet'); if (hs) hs.onclick = healthSettings;
+    document.getElementById('hsEntry').onclick = () => { UI.filters.entryGroup = 'perf'; go('entry'); };
+    drawHealthCharts(h);
+  }
+  async function drawHealthCharts(h) {
+    await ensureChart(); if (S.view !== 'health' || !document.getElementById('hc_rej')) return;
+    const lb = h.days.map(d => { const q = isoToJ(d); return D(q.month + '/' + q.day); }), cf = (id, label, data, col, extra, o) => mkChart(id, chartCfg('line', lb, [line(label, data, col)].concat(extra || []), o || { zero: false }));
+    const flat = (v, label, col) => ({ label, data: h.days.map(() => v), borderColor: col, borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 });
+    cf('hc_rej', L('درصد حذف نمک', 'Salt rejection'), h.series.rej, PAL[0]);
+    cf('hc_rec', L('ریکاوری', 'Recovery'), h.series.rec, PAL[4]);
+    cf('hc_npf', L('شار نرمال‌شده', 'Normalised flow'), h.series.npf, PAL[1], h.npf.base != null ? [flat(100 - h.th.npf, L('آستانه CIP', 'CIP threshold'), '#d43439')] : []);
+    cf('hc_dpm', L('ΔP غشاها', 'Membrane ΔP'), h.series.dpm, PAL[2], h.dp.base != null ? [flat(h.dp.base * (1 + h.th.dp / 100), L('آستانه CIP', 'CIP threshold'), '#d43439')] : []);
+    cf('hc_cdp', L('ΔP کارتریج‌ها', 'Cartridge ΔP'), h.series.cdp, PAL[3], h.cart.target != null ? [flat(h.cart.target, L('آستانه تعویض', 'Replace at'), '#d43439')] : []);
   }
   function openStage(id, focus) { UI.stageId = id; UI.stageFocus = focus || ''; UI.stageKey = null; go('stage'); }
   function limTxt(k) { const l = limOf(k); if (l.min == null && l.max == null) return L('حد مجاز تعریف نشده', 'no limit set'); return L('حد مجاز: ', 'Limit: ') + (l.min != null ? D(l.min) : '…') + ' – ' + (l.max != null ? D(l.max) : '…'); }
@@ -812,12 +1034,13 @@ export function startPlant(spec) {
     c.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const e = S.equipment.find(x => x.id === b.dataset.d); confirmDel(L('تجهیز «', 'Delete equipment “') + e.name + L('» حذف شود؟', '”?'), async () => { await fbDel('equipment', e.id); logAct(L('حذف تجهیز', 'Deleted equipment'), e.name); toast(L('حذف شد', 'Deleted')); }); });
     listExport('exp', () => L('فهرست تجهیزات', 'Equipment register'), () => [L('دسته', 'Category'), L('نام', 'Name'), L('سریال / پلاک', 'Serial'), L('محل نصب', 'Location'), L('تاریخ نصب', 'Install date')], () => rows.map(e => [catLab(e.category), e.name, e.serial || '—', e.location || '—', e.installDate ? jStr(e.installDate) : '—']), 'equipment');
   }
-  function equipForm(ex) {
+  function equipForm(ex, pre) {
+    ex = ex || null; const pf = ex || pre || {};
     modal(ex ? L('ویرایش تجهیز', 'Edit equipment') : L('افزودن تجهیز', 'Add equipment'),
-      fSel('f_cat', L('دسته تجهیز', 'Category'), spec.categories.map(k => ({ v: k.key, l: lab(k) })), ex && ex.category) + fSel('f_stage', L('مرحله در PFD (اختیاری)', 'PFD stage (optional)'), [{ v: '', l: '—' }].concat(SP.STAGE_ORDER.map(k => ({ v: k, l: isFa() ? SP.STAGES[k].fa : SP.STAGES[k].en }))), ex && ex.stage) + fText('f_name', L('نام تجهیز', 'Equipment name'), ex && ex.name) + fText('f_serial', L('شماره سریال / پلاک', 'Serial / tag number'), ex && ex.serial) + fText('f_loc', L('محل نصب', 'Install location'), ex && ex.location) + dateField('f_inst', L('تاریخ نصب (شمسی)', 'Install date (Jalali)'), ex && ex.installDate) + fArea('f_notes', L('توضیحات', 'Notes'), ex && ex.notes),
+      fSel('f_cat', L('دسته تجهیز', 'Category'), spec.categories.map(k => ({ v: k.key, l: lab(k) })), ex && ex.category) + fSel('f_stage', L('مرحله در PFD (اختیاری)', 'PFD stage (optional)'), [{ v: '', l: '—' }].concat(SP.STAGE_ORDER.map(k => ({ v: k, l: isFa() ? SP.STAGES[k].fa : SP.STAGES[k].en }))), pf.stage) + fSel('f_pfdel', L('واحد روی PFD (اختیاری — برای رنگ‌شدن سلامت روی PFD)', 'PFD unit (optional — shows health on the PFD)'), [{ v: '', l: '—' }].concat(SP.ELEMENTS.map(e => ({ v: e.id, l: isFa() ? e.fa : e.en }))), pf.pfdEl) + fText('f_name', L('نام تجهیز', 'Equipment name'), pf.name) + fText('f_serial', L('شماره سریال / پلاک', 'Serial / tag number'), ex && ex.serial) + fText('f_loc', L('محل نصب', 'Install location'), ex && ex.location) + dateField('f_inst', L('تاریخ نصب (شمسی)', 'Install date (Jalali)'), ex && ex.installDate) + fArea('f_notes', L('توضیحات', 'Notes'), ex && ex.notes),
       async (m) => {
         const name = gv(m, 'f_name').trim(); if (!name) { toast(L('نام تجهیز را وارد کنید', 'Enter the equipment name')); return false; }
-        const rec = { category: gv(m, 'f_cat'), stage: gv(m, 'f_stage'), name, serial: gv(m, 'f_serial').trim(), location: gv(m, 'f_loc').trim(), installDate: dateVal(m, 'f_inst'), notes: gv(m, 'f_notes').trim() };
+        const rec = { category: gv(m, 'f_cat'), stage: (SP.elInfo(gv(m, 'f_pfdel')) || { stage: gv(m, 'f_stage') }).stage, pfdEl: gv(m, 'f_pfdel'), name, serial: gv(m, 'f_serial').trim(), location: gv(m, 'f_loc').trim(), installDate: dateVal(m, 'f_inst'), notes: gv(m, 'f_notes').trim() };
         if (ex) await fbUpd('equipment', ex.id, rec); else await fbAdd('equipment', Object.assign({ createdAt: todayISO() }, rec));
         logAct(ex ? L('ویرایش تجهیز', 'Edited equipment') : L('افزودن تجهیز', 'Added equipment'), name); toast(L('ذخیره شد', 'Saved'));
       });
@@ -878,10 +1101,10 @@ export function startPlant(spec) {
     c.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const x = S.cm.find(y => y.id === b.dataset.d); confirmDel(L('این رکورد حذف شود؟', 'Delete this record?'), async () => { await fbDel('cm', x.id); logAct(L('حذف تعمیر', 'Deleted repair'), x.issue); toast(L('حذف شد', 'Deleted')); }); });
     listExport('exp', () => L('تعمیرات و خرابی‌ها', 'Repairs & failures'), () => [L('وضعیت', 'Status'), L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('شرح', 'Issue'), L('اقدام', 'Action'), L('تکنسین', 'Technician'), L('متریال', 'Materials')], () => rows.map(x => [x.status === 'open' ? L('باز', 'Open') : L('بسته‌شده', 'Closed'), jStr(x.date), eqName(x.equipmentId), x.issue || '', x.action || '', x.technician || '—', x.materials || '—']), 'repairs');
   }
-  function cmForm(ex) {
+  function cmForm(ex, pre) {
     if (needEq()) return;
     modal(ex ? L('ویرایش رکورد', 'Edit record') : L('ثبت خرابی / تعمیر', 'Log failure / repair'),
-      fSel('f_eq', L('تجهیز', 'Equipment'), eqOpts(), ex && ex.equipmentId) + dateField('f_date', L('تاریخ وقوع (شمسی)', 'Date (Jalali)'), ex && ex.date) + fArea('f_issue', L('شرح خرابی / مشکل', 'Issue description'), ex && ex.issue) + fArea('f_action', L('اقدام انجام‌شده', 'Action taken'), ex && ex.action) + fText('f_tech', L('نام تکنسین', 'Technician'), ex && ex.technician) + fText('f_mat', L('قطعات / متریال مصرفی', 'Parts / materials used'), ex && ex.materials) + fSel('f_status', L('وضعیت', 'Status'), [{ v: 'open', l: L('باز', 'Open') }, { v: 'closed', l: L('بسته‌شده', 'Closed') }], ex ? ex.status : 'open'),
+      fSel('f_eq', L('تجهیز', 'Equipment'), eqOpts(), (ex || pre || {}).equipmentId) + dateField('f_date', L('تاریخ وقوع (شمسی)', 'Date (Jalali)'), ex && ex.date) + fArea('f_issue', L('شرح خرابی / مشکل', 'Issue description'), (ex || pre || {}).issue) + fArea('f_action', L('اقدام انجام‌شده', 'Action taken'), ex && ex.action) + fText('f_tech', L('نام تکنسین', 'Technician'), ex && ex.technician) + fText('f_mat', L('قطعات / متریال مصرفی', 'Parts / materials used'), ex && ex.materials) + fSel('f_status', L('وضعیت', 'Status'), [{ v: 'open', l: L('باز', 'Open') }, { v: 'closed', l: L('بسته‌شده', 'Closed') }], ex ? ex.status : 'open'),
       async (m) => {
         const issue = gv(m, 'f_issue').trim(); if (!issue) { toast(L('شرح خرابی را وارد کنید', 'Describe the issue')); return false; }
         const status = gv(m, 'f_status');
@@ -921,12 +1144,12 @@ export function startPlant(spec) {
     c.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const w = S.wo.find(x => x.id === b.dataset.d); confirmDel(L('دستورکار ', 'Delete work order ') + w.no + L(' حذف شود؟', '?'), async () => { await fbDel('wo', w.id); logAct(L('حذف دستورکار', 'Deleted work order'), w.no); toast(L('حذف شد', 'Deleted')); }); });
     listExport('exp', () => L('دستورکارها', 'Work orders'), () => [L('شماره', 'No.'), L('وضعیت', 'Status'), L('اولویت', 'Priority'), L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('نوع', 'Type'), L('شرح', 'Description'), L('مسئول', 'Assignee'), L('مهلت', 'Due'), L('ساعت کار', 'Hours')], () => rows.map(w => [w.no || '—', woStatL(w.status), woPrioL(w.priority), jStr(w.date), eqName(w.equipmentId), woTypeL(w.type), w.description || '', w.assignee || '—', w.dueDate ? jStr(w.dueDate) : '—', w.hours == null ? '—' : num(w.hours, 1)]), 'work-orders');
   }
-  function woForm(ex) {
+  function woForm(ex, pre) {
     modal(ex ? L('ویرایش دستورکار ', 'Edit work order ') + (ex.no || '') : L('صدور دستورکار جدید', 'New work order'),
       fText('f_no', L('شماره دستورکار', 'Work order no.'), ex ? ex.no : nextWoNo()) + dateField('f_date', L('تاریخ صدور (شمسی)', 'Issue date (Jalali)'), ex && ex.date) +
-      fSel('f_eq', L('تجهیز (اختیاری)', 'Equipment (optional)'), [{ v: '', l: '—' }].concat(eqOpts()), ex && ex.equipmentId) +
-      `<div class="field-row">${fSel('f_type', L('نوع کار', 'Work type'), WO_TYPES.map(t => ({ v: t[0], l: L(t[1][0], t[1][1]) })), ex ? ex.type : 'preventive')}${fSel('f_prio', L('اولویت', 'Priority'), WO_PRIO.map(t => ({ v: t[0], l: L(t[1][0], t[1][1]) })), ex ? ex.priority : 'normal')}</div>` +
-      fArea('f_desc', L('شرح کار', 'Work description'), ex && ex.description) + fText('f_asg', L('مسئول انجام', 'Assignee'), ex && ex.assignee) + dateField('f_due', L('مهلت انجام (شمسی)', 'Due date (Jalali)'), ex && ex.dueDate ? ex.dueDate : addDays(todayISO(), 7), true) +
+      fSel('f_eq', L('تجهیز (اختیاری)', 'Equipment (optional)'), [{ v: '', l: '—' }].concat(eqOpts()), (ex || pre || {}).equipmentId) +
+      `<div class="field-row">${fSel('f_type', L('نوع کار', 'Work type'), WO_TYPES.map(t => ({ v: t[0], l: L(t[1][0], t[1][1]) })), ex ? ex.type : ((pre && pre.type) || 'preventive'))}${fSel('f_prio', L('اولویت', 'Priority'), WO_PRIO.map(t => ({ v: t[0], l: L(t[1][0], t[1][1]) })), ex ? ex.priority : 'normal')}</div>` +
+      fArea('f_desc', L('شرح کار', 'Work description'), (ex || pre || {}).description) + fText('f_asg', L('مسئول انجام', 'Assignee'), ex && ex.assignee) + dateField('f_due', L('مهلت انجام (شمسی)', 'Due date (Jalali)'), ex && ex.dueDate ? ex.dueDate : addDays(todayISO(), 7), true) +
       fSel('f_status', L('وضعیت', 'Status'), WO_STAT.map(t => ({ v: t[0], l: L(t[1][0], t[1][1]) })), ex ? ex.status : 'new'),
       async (m) => {
         const desc = gv(m, 'f_desc').trim(); if (!desc) { toast(L('شرح کار را وارد کنید', 'Describe the work')); return false; }
@@ -969,7 +1192,7 @@ export function startPlant(spec) {
   function applyNav(n) {
     const v = n && n.view;
     if (!v) return;
-    const ok = () => { if (S.ready && ['dashboard', 'entry', 'reports', 'qreport', 'limits', 'equipment', 'pm', 'cm', 'wo', 'log'].includes(v)) { if (allowedView(v)) go(v); return true; } return false; };
+    const ok = () => { if (S.ready && ['dashboard', 'entry', 'reports', 'qreport', 'health', 'limits', 'equipment', 'pm', 'cm', 'wo', 'log'].includes(v)) { if (allowedView(v)) go(v); return true; } return false; };
     if (ok()) return;
     clearTimeout(applyNav._t); navTry = 0;
     (function retry() { if (ok() || ++navTry > 40) return; applyNav._t = setTimeout(retry, 300); })();

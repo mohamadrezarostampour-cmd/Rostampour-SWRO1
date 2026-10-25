@@ -1,7 +1,7 @@
-const CACHE_NAME = 'rostampour-swro-nv-v44';
+const CACHE_NAME = 'rostampour-swro-nv-v45';
 const ASSETS = [
   './','./index.html','./desal.html',
-  './module.css','./role.js','./shell-tools.js','./plant-specs.js','./report-kit.js','./plant-core.js', './swro-pfd.js','./i18n-en.js','./vendor-docx.js',
+  './module.css','./role.js','./shell-tools.js','./plant-specs.js','./report-kit.js','./plant-core.js', './swro-pfd.js','./swro-health.js','./i18n-en.js','./vendor-docx.js',
   './manifest.json','./icon-192.png','./icon-512.png','./favicon-32.png','./apple-touch-icon.png','./report-logo.png','./banner-logo.png'
 ];
 

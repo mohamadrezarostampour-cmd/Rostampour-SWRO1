@@ -61,7 +61,16 @@ window.PLANT_SPECS.desal = {
       ph: 'کمی اسیدی به‌دلیل حذف بی‌کربنات', th: 'سختی بسیار پایین' },
       [{ key: 'rej', fa: 'درصد حذف نمک (TDS: نقطه ۴ ← نقطه ۵)', en: 'TDS rejection (point 4 → point 5)', unit: '%', dec: 2, fn: b => (b.cTds > 0 && b.mTds != null) ? (b.cTds - b.mTds) / b.cTds * 100 : null }]),
     qgroup('o', 'نقطه ۶ — بعد از کلر نهایی و بستر آهک (خروجی کارخانه)', 'Point 6 — After chlorine & lime dosing (plant output)', 'o', ['ph', 'ec', 'tds', 'th', 'ntu', 'cl'], {
-      ph: 'تنظیم‌شده با آهک', th: 'بازیابی سختی جهت تعادل آب', cl: 'تزریق جهت ضدعفونی' })
+      ph: 'تنظیم‌شده با آهک', th: 'بازیابی سختی جهت تعادل آب', cl: 'تزریق جهت ضدعفونی' }),
+    /* ---- عملکرد کارتریج و RO — اختیاری، روزی یک‌بار، بدون حد پیش‌فرض (ورودی تحلیل «سلامت RO و کارتریج») ---- */
+    { id: 'perf', fa: 'عملکرد کارتریج و RO (اختیاری — برای تحلیل سلامت)', en: 'Cartridge & RO performance (optional — for health analysis)',
+      params: [
+        P('cartDp', 'اختلاف فشار کارتریج‌ها (ΔP)', 'Cartridge differential pressure (ΔP)', 'bar', 'avg', { dec: 2, min: 0, note: 'فشار ورودی منهای فشار خروجی کارتریج‌ها' }),
+        P('roFeedP', 'فشار خوراک RO', 'RO feed pressure', 'bar', 'avg', { dec: 1, min: 0, note: 'همیشه از یک خط شاخص ثبت شود' }),
+        P('roConcP', 'فشار کنسانتره RO', 'RO concentrate pressure', 'bar', 'avg', { dec: 1, min: 0, note: 'همان خط شاخص' }),
+        P('roPermQ', 'دبی پرمیت RO', 'RO permeate flow', 'm³/h', 'avg', { dec: 1, min: 0, note: 'همان خط شاخص' }),
+        P('roTemp', 'دمای آب خوراک', 'Feed water temperature', '°C', 'avg', { dec: 1, min: 0, max: 60 })],
+      charts: [{ title: { fa: 'ΔP کارتریج‌ها', en: 'Cartridge ΔP' }, series: ['cartDp'] }, { title: { fa: 'فشار خوراک و کنسانتره', en: 'Feed & concentrate pressure' }, series: ['roFeedP', 'roConcP'] }] }
   ],
   dashParams: ['prod', 'tkRaw', 'tkProd', 'outage', 'rec', 'acid', 'smbs', 'cl', 'clf', 'mTds', 'mEc', 'oPh', 'oCl'],
   dashCharts: [

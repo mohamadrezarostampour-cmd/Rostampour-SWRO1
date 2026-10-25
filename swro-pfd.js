@@ -41,11 +41,11 @@
                dg: { src: { fa: 'خروجی پمپ‌های خوراک', en: 'Feed pump outlet' }, dst: { fa: 'تزریق SMBS ← کارتریج‌ها', en: 'SMBS → cartridges' }, chem: true, chemFa: 'اسید سولفوریک', chemEn: 'Sulfuric acid', valve: 'acid', marks: [{ n: 2, at: 'dst' }] } },
     smbs:    { fa: 'تزریق SMBS و نقطه ۳', en: 'SMBS dosing & point 3', groups: ['q_s'], keys: ['smbs'], el: 'smbs',
                dg: { src: { fa: 'خط خوراک (بعد از اسید)', en: 'Feed line (after acid)' }, dst: { fa: 'کارتریج‌ها', en: 'Cartridge filters' }, chem: true, chemFa: 'SMBS', chemEn: 'SMBS', valve: 'smbs', marks: [{ n: 3, at: 'dst' }] } },
-    cart:    { fa: 'کارتریج فیلترها (۵ عدد) و نقطه ۴', en: 'Cartridge filters (5) & point 4', groups: ['q_c'], keys: [], info: [['درجه فیلتراسیون', 'Filtration grade', '۵ میکرون', '5 µm']],
+    cart:    { fa: 'کارتریج فیلترها (۵ عدد) و نقطه ۴', en: 'Cartridge filters (5) & point 4', groups: ['q_c'], keys: ['cartDp'], info: [['درجه فیلتراسیون', 'Filtration grade', '۵ میکرون', '5 µm']],
                dg: { src: { fa: 'خط خوراک (نقطه ۳)', en: 'Feed line (point 3)' }, unit: { t: 'cart', fa: 'کارتریج', en: 'Cartridge', n: 5, pref: 'cart' }, dst: { fa: 'پمپ‌های فشار قوی', en: 'HP pumps' }, marks: [{ n: 4, at: 'dst' }] } },
     hp:      { fa: 'پمپ‌های فشار قوی (۵ عدد)', en: 'High-pressure pumps (5)', groups: [], keys: [],
                dg: { src: { fa: 'خروجی کارتریج‌ها', en: 'Cartridge outlets' }, unit: { t: 'pump', fa: 'پمپ فشار قوی', en: 'HP pump', n: 5, pref: 'hp' }, dst: { fa: 'ممبران‌های RO', en: 'RO membranes' } } },
-    ro:      { fa: 'ممبران RO (۵ خط) و نقطه ۵', en: 'RO membranes (5 trains) & point 5', groups: ['q_m'], keys: ['rec'], info: [['اندازه منافذ ممبران', 'Membrane pore size', '۰٫۰۰۱ میکرون', '0.001 µm']],
+    ro:      { fa: 'ممبران RO (۵ خط) و نقطه ۵', en: 'RO membranes (5 trains) & point 5', groups: ['q_m'], keys: ['rec', 'roFeedP', 'roConcP', 'roPermQ', 'roTemp'], info: [['اندازه منافذ ممبران', 'Membrane pore size', '۰٫۰۰۱ میکرون', '0.001 µm']],
                dg: { src: { fa: 'پمپ‌های فشار قوی', en: 'HP pumps' }, unit: { t: 'ro', fa: 'RO', en: 'RO', n: 5, pref: 'ro' }, dst: { fa: 'مخزن آب تولیدی', en: 'Product tank' }, marks: [{ n: 5, at: 'dst' }] } },
     lime:    { fa: 'بستر سنگ آهک (کف مخزن آب تولیدی)', en: 'Limestone bed (product tank floor)', groups: [], keys: ['oPh', 'oTh'], el: 'lime', note: ['سنگ آهک کف مخزن آب تولیدی است و مصرف روزانه ندارد؛ pH و سختی آب خروجی که اثر آن را نشان می‌دهند در اینجا دیده می‌شوند.', 'The limestone bed is on the product tank floor and has no daily consumption; the output pH and hardness (its effect) are shown here.'],
                dg: { src: { fa: 'خروجی RO (نقطه ۵)', en: 'RO output (point 5)' }, unit: { t: 'tank', fa: 'مخزن آب تولیدی + بستر آهک', en: 'Product tank + limestone bed', n: 1, single: 'prod' }, dst: { fa: 'پمپ‌های ارسال', en: 'Transfer pumps' }, marks: [{ n: 5, at: 'src' }] } },
@@ -59,6 +59,25 @@
                dg: { src: { fa: 'پمپ‌های ارسال + کلر و آهک', en: 'Transfer pumps + chlorine & lime' }, dst: { fa: 'ایستگاه توزیع پارس', en: 'Pars distribution station' }, marks: [{ n: 6, at: 'src' }] } }
   };
   const STAGE_ORDER = ['wells', 'chlor', 'filt', 'rawtank', 'feedp', 'acid', 'smbs', 'cart', 'hp', 'ro', 'lime', 'prodtank', 'outp', 'outchl', 'dist'];
+
+  /* ---------- PFD elements (for linking equipment / repairs to a unit) ---------- */
+  const ELEMENTS = [];
+  (function () {
+    const add = (id, stage, fa, en) => ELEMENTS.push({ id, stage, fa, en });
+    for (let i = 1; i <= 11; i++) add('well' + i, 'wells', 'چاه ' + FA(i), 'Well ' + i);
+    add('chlor', 'chlor', 'تزریق کلر اولیه', 'Primary chlorine dosing');
+    for (let i = 1; i <= 6; i++) add('filt' + i, 'filt', 'فیلتراسیون ' + FA(i), 'Filtration ' + i);
+    add('raw', 'rawtank', 'مخزن آب خام', 'Raw water tank');
+    for (let i = 1; i <= 2; i++) add('feed' + i, 'feedp', 'پمپ خوراک ' + FA(i), 'Feed pump ' + i);
+    add('acid', 'acid', 'تزریق اسید', 'Acid dosing'); add('smbs', 'smbs', 'تزریق SMBS', 'SMBS dosing');
+    for (let i = 1; i <= 5; i++) add('cart' + i, 'cart', 'کارتریج فیلتر ' + FA(i), 'Cartridge filter ' + i);
+    for (let i = 1; i <= 5; i++) add('hp' + i, 'hp', 'پمپ فشار قوی ' + FA(i), 'HP pump ' + i);
+    for (let i = 1; i <= 5; i++) add('ro' + i, 'ro', 'RO ' + FA(i), 'RO ' + i);
+    add('prod', 'prodtank', 'مخزن آب تولیدی', 'Product water tank'); add('lime', 'lime', 'بستر سنگ آهک', 'Limestone bed');
+    for (let i = 1; i <= 3; i++) add('out' + i, 'outp', 'پمپ ارسال ' + FA(i), 'Transfer pump ' + i);
+    add('outchl', 'outchl', 'تزریق کلر نهایی', 'Final chlorine dosing');
+  })();
+  const elInfo = (id) => ELEMENTS.find(e => e.id === id) || null;
 
   /* ---------- svg helpers ---------- */
   const T = (x, y, s, o) => { o = o || {}; return `<text x="${x}" y="${y}" text-anchor="${o.a || 'middle'}" font-size="${o.s || 14}" font-weight="${o.w || 700}" fill="${o.c || C.ink}" direction="rtl">${esc(s)}</text>`; };
@@ -148,7 +167,22 @@
     s += valve(600, 905, 'legend', false, false, fa).replace('data-valve="legend"', 'data-legend="1"') + T(584, 909, Lb('شیر قطع و وصل', 'Isolation valve'), { a: fa ? 'start' : 'end', s: 12, w: 400 });
     s += `<polygon points="480,893 492,905 480,917 468,905" fill="#fff" stroke="#d6336c" stroke-width="2.4"/>` + T(454, 909, Lb('نقطه نمونه‌برداری', 'Sampling point'), { a: fa ? 'start' : 'end', s: 12, w: 400 });
     s += `<rect x="330" y="896" width="22" height="18" rx="6" fill="${C.tank}" stroke="${C.tankS}" stroke-width="2"/>` + T(320, 909, Lb('مخزن / فیلتر / چاه', 'Tank / filter / well'), { a: fa ? 'start' : 'end', s: 12, w: 400 });
+    s += liveBadges(ctx);
     return s + '</svg>';
+  }
+  /* live value badge beside each sampling point: status colour + headline value + 7-day sparkline */
+  const BADGE = { 1: [440, 679, 96], 2: [540, 156, 96], 3: [424, 208, 82], 4: [632, 199, 96], 5: [1056, 452, 80], 6: [1176, 158, 86] };
+  const SCOL = { bad: '#d43439', warn: '#f5a524', ok: '#2fb36b', none: '#8a97a8' };
+  function liveBadges(ctx) {
+    const lv = ctx.live; if (!lv) return '';
+    let s = '';
+    for (let n = 1; n <= 6; n++) {
+      const b = lv[n], g = BADGE[n]; if (!b) continue;
+      const [x, y, w] = g, h = 20, col = SCOL[b.status] || SCOL.none;
+      const sp = b.spark && b.spark.d ? `<g transform="translate(${x + 8},${y + 4})"><path d="${b.spark.d}" fill="none" stroke="${col}" stroke-width="1.4"/></g>` : '';
+      s += `<g class="livebadge hot" data-stage="${POINTS[n].stage}" data-focus="p${n}"><title>${esc(b.tip || '')}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#fff" stroke="${col}" stroke-width="2"/><rect x="${x}" y="${y}" width="5" height="${h}" rx="2" fill="${col}"/>${sp}<text x="${x + w - 4}" y="${y + 14}" text-anchor="end" direction="ltr" font-size="10.5" font-weight="700" fill="${C.ink}">${esc(b.text || '—')}</text></g>`;
+    }
+    return s;
   }
 
   const MAIN_CSS = `<style>
@@ -160,6 +194,8 @@
       .pfd-wrap .hot.bad>circle,.pfd-wrap .hot.bad>rect,.pfd-wrap .hot.bad>polygon{stroke:#d43439!important;stroke-width:5!important}
       .pfd-wrap .hot.off{opacity:.38}.pfd-wrap .hot.off>circle,.pfd-wrap .hot.off>rect{stroke:#d43439!important;stroke-dasharray:6 4}
       .pfd-wrap.simon{outline:3px dashed #d6336c;outline-offset:-3px}
+      .eqb{pointer-events:none}.hot.eq-bad,.hot.eq-warn{}
+      .stage-chip .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:5px}
       .stage-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
       .stage-chip{border:1px solid var(--border);background:var(--panel-2);border-radius:999px;padding:6px 13px;font-size:12.5px;cursor:pointer;font-weight:600}
       .stage-chip:hover{border-color:var(--mc);color:var(--mc)}.stage-chip.bad{border-color:#d43439;color:#d43439}
@@ -169,16 +205,25 @@
   function renderMain(mount, ctx) {
     const sim = ctx.sim || { on: false, off: new Set() };
     mount.innerHTML = MAIN_CSS + `<div class="pfd-wrap ${sim.on ? 'simon' : ''}">${mainSVG(ctx)}</div>
-    <div class="stage-chips">${STAGE_ORDER.map(id => `<span class="stage-chip ${ctx.bad && ctx.bad.has(id) ? 'bad' : ''}" data-stage="${id}">${esc(ctx.fa ? STAGES[id].fa : STAGES[id].en)}</span>`).join('')}</div>`;
+    <div class="stage-chips">${STAGE_ORDER.map(id => `<span class="stage-chip ${ctx.bad && ctx.bad.has(id) ? 'bad' : ''}" data-stage="${id}">${ctx.eqStage && ctx.eqStage[id] ? `<i class="dot" style="background:${ctx.eqStage[id] === 'bad' ? '#d43439' : '#f5a524'}" title="${esc(ctx.fa ? 'تجهیز دارای تعمیر باز / بازدید معوق' : 'Equipment with open repair / overdue inspection')}"></i>` : ''}${esc(ctx.fa ? STAGES[id].fa : STAGES[id].en)}</span>`).join('')}</div>`;
     mount.querySelectorAll('.hot').forEach(g => {
       if (ctx.bad && ctx.bad.has(g.dataset.stage) && !g.classList.contains('samp')) g.classList.add('bad');
       if (g.dataset.el && elOff(sim.off, g.dataset.el)) g.classList.add('off');
+    });
+    /* equipment health: small wrench badge on every unit that has an open repair / overdue inspection */
+    if (ctx.eq) mount.querySelectorAll('.hot[data-el]').forEach(g => {
+      const h = ctx.eq[g.dataset.el]; if (!h) return;
+      try {
+        const bb = g.getBBox(), col = h.k === 'bad' ? '#d43439' : '#f5a524';
+        g.insertAdjacentHTML('beforeend', `<g class="eqb"><circle cx="${bb.x + bb.width - 2}" cy="${bb.y + 2}" r="9" fill="${col}" stroke="#fff" stroke-width="2"/><text x="${bb.x + bb.width - 2}" y="${bb.y + 6}" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">${h.k === 'bad' ? '!' : '⏱'}</text></g>`);
+      } catch (e) { }
     });
     mount.onclick = (ev) => {
       const vl = ev.target.closest('[data-valve]');
       if (vl) { if (sim.on && ctx.toggle) ctx.toggle(vl.dataset.valve); else if (ctx.hint) ctx.hint(); return; }
       const el = ev.target.closest('.hot[data-el]');
       if (el && sim.on && ctx.toggle) { ctx.toggle(el.dataset.el); return; }
+      if (el && ctx.openEl) { ctx.openEl(el.dataset.el, el.dataset.stage, el.dataset.focus || ''); return; }
       const t = ev.target.closest('[data-stage]'); if (!t) return;
       ctx.open(t.dataset.stage, t.dataset.focus || '');
     };
@@ -333,5 +378,5 @@
     });
   }
 
-  window.SWRO_PFD = { STAGES, STAGE_ORDER, POINTS, renderMain, renderStage, simulate, simPanel, snapshot, elOff };
+  window.SWRO_PFD = { STAGES, STAGE_ORDER, POINTS, renderMain, renderStage, simulate, simPanel, snapshot, elOff, ELEMENTS, elInfo, BADGE };
 })();
